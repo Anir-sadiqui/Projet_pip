@@ -1,0 +1,19 @@
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files (optional - remove if you want to include CSV in git)
+data/*.csv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
