@@ -170,120 +170,89 @@ resource "aws_glue_crawler" "final" {
 }
 
 # ----------------
-# SCHEDULED PIPELINE AUTOMATION
+# GLUE WORKFLOW FOR AUTOMATION
 # ----------------
 
-# EventBridge Rule: Run pipeline every week (Monday at 9 AM UTC)
-resource "aws_cloudwatch_event_rule" "weekly_pipeline" {
-  name                = "weekly-pipeline-trigger"
-  description         = "Triggers pipeline every Monday at 9:00 AM UTC"
-  schedule_expression = "cron(0 9 ? * MON *)"
+resource "aws_glue_workflow" "pipeline_workflow" {
+  name = "reviews-pipeline-workflow"
+  description = "Automated pipeline for reviews data processing"
 }
 
-# Target: Start raw crawler
-resource "aws_cloudwatch_event_target" "weekly_start_raw_crawler" {
-  rule      = aws_cloudwatch_event_rule.weekly_pipeline.name
-  target_id = "StartRawCrawler"
-  arn       = aws_glue_crawler.raw.arn
-  role_arn  = data.aws_iam_role.lab_role.arn
-}
+resource "aws_glue_trigger" "start_raw_crawler" {
+  name          = "start-raw-crawler-trigger"
+  type          = "SCHEDULED"
+  schedule      = "cron(0 9 ? * MON *)"
+  workflow_name = aws_glue_workflow.pipeline_workflow.name
 
-# EventBridge Rule: Trigger when raw crawler succeeds
-resource "aws_cloudwatch_event_rule" "raw_crawler_success" {
-  name        = "raw-crawler-success"
-  description = "Triggers when raw crawler completes successfully"
-
-  event_pattern = jsonencode({
-    source      = ["aws.glue"]
-    detail-type = ["Glue Crawler State Change"]
-    detail = {
-      crawlerName = [aws_glue_crawler.raw.name]
-      state       = ["Succeeded"]
-    }
-  })
-}
-
-# Target: Start raw-to-processed job
-resource "aws_cloudwatch_event_target" "start_raw_to_processed_job" {
-  rule      = aws_cloudwatch_event_rule.raw_crawler_success.name
-  target_id = "StartRawToProcessedJob"
-  arn       = aws_glue_job.raw_to_processed.arn
-  role_arn  = data.aws_iam_role.lab_role.arn
-
-  retry_policy {
-    maximum_retry_attempts = 2
+  actions {
+    crawler_name = aws_glue_crawler.raw.name
   }
 }
 
-# EventBridge Rule: Trigger when raw-to-processed job succeeds
-resource "aws_cloudwatch_event_rule" "raw_to_processed_job_success" {
-  name        = "raw-to-processed-job-success"
-  description = "Triggers when raw-to-processed job completes successfully"
+resource "aws_glue_trigger" "start_raw_to_processed_job" {
+  name          = "start-raw-to-processed-job-trigger"
+  type          = "CONDITIONAL"
+  workflow_name = aws_glue_workflow.pipeline_workflow.name
 
-  event_pattern = jsonencode({
-    source      = ["aws.glue"]
-    detail-type = ["Glue Job State Change"]
-    detail = {
-      jobName = [aws_glue_job.raw_to_processed.name]
-      state   = ["SUCCEEDED"]
+  predicate {
+    conditions {
+      crawler_name = aws_glue_crawler.raw.name
+      crawl_state  = "SUCCEEDED"
     }
-  })
-}
+  }
 
-# Target: Start processed crawler
-resource "aws_cloudwatch_event_target" "start_processed_crawler" {
-  rule      = aws_cloudwatch_event_rule.raw_to_processed_job_success.name
-  target_id = "StartProcessedCrawler"
-  arn       = aws_glue_crawler.processed.arn
-  role_arn  = data.aws_iam_role.lab_role.arn
-}
-
-# EventBridge Rule: Trigger when processed crawler succeeds
-resource "aws_cloudwatch_event_rule" "processed_crawler_success" {
-  name        = "processed-crawler-success"
-  description = "Triggers when processed crawler completes successfully"
-
-  event_pattern = jsonencode({
-    source      = ["aws.glue"]
-    detail-type = ["Glue Crawler State Change"]
-    detail = {
-      crawlerName = [aws_glue_crawler.processed.name]
-      state       = ["Succeeded"]
-    }
-  })
-}
-
-# Target: Start processed-to-final job
-resource "aws_cloudwatch_event_target" "start_processed_to_final_job" {
-  rule      = aws_cloudwatch_event_rule.processed_crawler_success.name
-  target_id = "StartProcessedToFinalJob"
-  arn       = aws_glue_job.processed_to_final.arn
-  role_arn  = data.aws_iam_role.lab_role.arn
-
-  retry_policy {
-    maximum_retry_attempts = 2
+  actions {
+    job_name = aws_glue_job.raw_to_processed.name
   }
 }
 
-# EventBridge Rule: Trigger when processed-to-final job succeeds
-resource "aws_cloudwatch_event_rule" "processed_to_final_job_success" {
-  name        = "processed-to-final-job-success"
-  description = "Triggers when processed-to-final job completes successfully"
+resource "aws_glue_trigger" "start_processed_crawler" {
+  name          = "start-processed-crawler-trigger"
+  type          = "CONDITIONAL"
+  workflow_name = aws_glue_workflow.pipeline_workflow.name
 
-  event_pattern = jsonencode({
-    source      = ["aws.glue"]
-    detail-type = ["Glue Job State Change"]
-    detail = {
-      jobName = [aws_glue_job.processed_to_final.name]
-      state   = ["SUCCEEDED"]
+  predicate {
+    conditions {
+      job_name = aws_glue_job.raw_to_processed.name
+      state    = "SUCCEEDED"
     }
-  })
+  }
+
+  actions {
+    crawler_name = aws_glue_crawler.processed.name
+  }
 }
 
-# Target: Start final crawler
-resource "aws_cloudwatch_event_target" "start_final_crawler" {
-  rule      = aws_cloudwatch_event_rule.processed_to_final_job_success.name
-  target_id = "StartFinalCrawler"
-  arn       = aws_glue_crawler.final.arn
-  role_arn  = data.aws_iam_role.lab_role.arn
+resource "aws_glue_trigger" "start_processed_to_final_job" {
+  name          = "start-processed-to-final-job-trigger"
+  type          = "CONDITIONAL"
+  workflow_name = aws_glue_workflow.pipeline_workflow.name
+
+  predicate {
+    conditions {
+      crawler_name = aws_glue_crawler.processed.name
+      crawl_state  = "SUCCEEDED"
+    }
+  }
+
+  actions {
+    job_name = aws_glue_job.processed_to_final.name
+  }
+}
+
+resource "aws_glue_trigger" "start_final_crawler" {
+  name          = "start-final-crawler-trigger"
+  type          = "CONDITIONAL"
+  workflow_name = aws_glue_workflow.pipeline_workflow.name
+
+  predicate {
+    conditions {
+      job_name = aws_glue_job.processed_to_final.name
+      state    = "SUCCEEDED"
+    }
+  }
+
+  actions {
+    crawler_name = aws_glue_crawler.final.name
+  }
 }
