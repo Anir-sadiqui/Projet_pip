@@ -4,10 +4,8 @@ from awsglue.utils import getResolvedOptions
 from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
-from awsglue.dynamicframe import DynamicFrame
-from pyspark.sql.functions import col, when
+from pyspark.sql.functions import col, when, trim, lower
 
-# --- Init ---
 args = getResolvedOptions(sys.argv, ['JOB_NAME'])
 sc = SparkContext()
 glueContext = GlueContext(sc)
@@ -15,55 +13,66 @@ spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args['JOB_NAME'], args)
 
-# --- Read from Data Catalog ---
-raw_dyf = glueContext.create_dynamic_frame.from_catalog(
-    database="reviews_raw_db",
-    table_name="raw_raw",  # table_prefix + folder name
-    transformation_ctx="raw_dyf"
+# Read from raw database
+datasource0 = glueContext.create_dynamic_frame.from_catalog(
+    database = "reviews_raw_db",
+    table_name = "raw_raw",
+    transformation_ctx = "datasource0"
 )
 
-# --- Select Fields ---
-selected_dyf = SelectFields.apply(
-    frame=raw_dyf,
-    paths=["review_text", "rating", "recommended_ind", "division_name", 
-           "department_name", "class_name", "review_id"],
-    transformation_ctx="selected_dyf"
+# Rename columns using ApplyMapping
+applymapping1 = ApplyMapping.apply(
+    frame = datasource0,
+    mappings = [
+        ("col0", "long", "review_id", "long"),
+        ("col1", "string", "clothing_id", "string"),
+        ("col2", "string", "age", "string"),
+        ("col3", "string", "title", "string"),
+        ("col4", "string", "review_text", "string"),
+        ("col5", "string", "rating", "string"),
+        ("col6", "string", "recommended_ind", "string"),
+        ("col7", "string", "positive_feedback_count", "string"),
+        ("col8", "string", "division_name", "string"),
+        ("col9", "string", "department_name", "string"),
+        ("col10", "string", "class_name", "string")
+    ],
+    transformation_ctx = "applymapping1"
 )
 
-# --- Filter nulls ---
-filtered_dyf = Filter.apply(
-    frame=selected_dyf,
-    f=lambda row: row["review_text"] is not None and row["rating"] is not None,
-    transformation_ctx="filtered_dyf"
+# Convert to DataFrame for transformations
+df = applymapping1.toDF()
+
+# Apply transformations: clean nulls, cast types, convert boolean
+df_transformed = df.filter(
+    (col("rating").isNotNull()) & 
+    (col("review_text").isNotNull()) &
+    (trim(col("review_text")) != "")
+).withColumn(
+    "rating",
+    col("rating").cast("integer")
+).withColumn(
+    "age",
+    col("age").cast("integer")
+).withColumn(
+    "positive_feedback_count",
+    col("positive_feedback_count").cast("integer")
+).withColumn(
+    "recommended_ind",
+    when(lower(trim(col("recommended_ind"))) == "true", 1)
+    .when(lower(trim(col("recommended_ind"))) == "false", 0)
+    .otherwise(None)
 )
 
-# --- Convert to DataFrame for sentiment column ---
-df = filtered_dyf.toDF()
+# Convert back to DynamicFrame
+dynamic_frame_final = DynamicFrame.fromDF(df_transformed, glueContext, "dynamic_frame_final")
 
-# --- Add sentiment column using PySpark when function ---
-df = df.withColumn(
-    "sentiment",
-    when(col("rating") >= 4, "POSITIVE")
-    .when(col("rating") == 3, "NEUTRAL")
-    .otherwise("NEGATIVE")
-)
-
-# --- Convert back to DynamicFrame ---
-final_dyf = DynamicFrame.fromDF(df, glueContext, "final_dyf")
-
-# --- Write to S3 ---
-glueContext.write_dynamic_frame.from_options(
-    frame=final_dyf,
-    connection_type="s3",
-    format="csv",
-    connection_options={
-        "path": "s3://final-bucket-s3-reviews-data/final/",
-    "partitionKeys": []
-    },
-    format_options={
-        "withHeader": True
-    },
-    transformation_ctx="write_processed"
+# Write to processed bucket
+datasink2 = glueContext.write_dynamic_frame.from_options(
+    frame = dynamic_frame_final,
+    connection_type = "s3",
+    connection_options = {"path": "s3://processed-bucket-s3-reviews-data-ah/processed/"},
+    format = "parquet",
+    transformation_ctx = "datasink2"
 )
 
 job.commit()
