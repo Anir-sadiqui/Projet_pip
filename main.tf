@@ -184,7 +184,7 @@ resource "aws_cloudwatch_event_rule" "weekly_pipeline" {
 resource "aws_cloudwatch_event_target" "weekly_start_raw_crawler" {
   rule      = aws_cloudwatch_event_rule.weekly_pipeline.name
   target_id = "StartRawCrawler"
-  arn       = "arn:aws:glue:${var.region}:${data.aws_caller_identity.current.account_id}:crawler/${aws_glue_crawler.raw.name}"
+  arn       = aws_glue_crawler.raw.arn
   role_arn  = data.aws_iam_role.lab_role.arn
 }
 
@@ -211,8 +211,7 @@ resource "aws_cloudwatch_event_target" "start_raw_to_processed_job" {
   role_arn  = data.aws_iam_role.lab_role.arn
 
   retry_policy {
-    maximum_event_age       = 3600
-    maximum_retry_attempts  = 2
+    maximum_retry_attempts = 2
   }
 }
 
@@ -235,7 +234,7 @@ resource "aws_cloudwatch_event_rule" "raw_to_processed_job_success" {
 resource "aws_cloudwatch_event_target" "start_processed_crawler" {
   rule      = aws_cloudwatch_event_rule.raw_to_processed_job_success.name
   target_id = "StartProcessedCrawler"
-  arn       = "arn:aws:glue:${var.region}:${data.aws_caller_identity.current.account_id}:crawler/${aws_glue_crawler.processed.name}"
+  arn       = aws_glue_crawler.processed.arn
   role_arn  = data.aws_iam_role.lab_role.arn
 }
 
@@ -262,8 +261,7 @@ resource "aws_cloudwatch_event_target" "start_processed_to_final_job" {
   role_arn  = data.aws_iam_role.lab_role.arn
 
   retry_policy {
-    maximum_event_age       = 3600
-    maximum_retry_attempts  = 2
+    maximum_retry_attempts = 2
   }
 }
 
@@ -286,6 +284,6 @@ resource "aws_cloudwatch_event_rule" "processed_to_final_job_success" {
 resource "aws_cloudwatch_event_target" "start_final_crawler" {
   rule      = aws_cloudwatch_event_rule.processed_to_final_job_success.name
   target_id = "StartFinalCrawler"
-  arn       = "arn:aws:glue:${var.region}:${data.aws_caller_identity.current.account_id}:crawler/${aws_glue_crawler.final.name}"
+  arn       = aws_glue_crawler.final.arn
   role_arn  = data.aws_iam_role.lab_role.arn
 }
