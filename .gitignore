@@ -9,10 +9,6 @@ terraform.tfvars
 __pycache__/
 *.pyc
 *.pyo
-
-# Data files (optional - remove if you want to include CSV in git)
-data/*.csv
-
 # IDE files
 .vscode/
 .idea/
